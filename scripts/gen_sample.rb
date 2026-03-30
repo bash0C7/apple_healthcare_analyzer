@@ -23,7 +23,9 @@ def collect_records(xml_path)
 
     SAMPLE_TYPES.each do |type|
       if line.include?(%(type="#{type}")) && counts[type] < RECORDS_PER_TYPE
-        records << line.chomp
+        rec = line.chomp.strip
+        rec = rec.end_with?('/>') ? rec : rec.sub(/>$/, '/>')
+        records << rec
         counts[type] += 1
         break
       end
