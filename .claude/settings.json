@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bundle exec ruby scripts/analyze.rb*)",
+      "Bash(bundle exec ruby scripts/extract.rb*)",
+      "Bash(bundle install*)",
+      "Bash(ruby -v)",
+      "Bash(ruby --version)",
+      "Bash(gem list*)",
+      "Bash(ls*)",
+      "Bash(wc -l output/*.csv)"
+    ]
+  }
+}

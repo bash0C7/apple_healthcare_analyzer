@@ -1,6 +1,13 @@
+# Apple Health personal data — never commit
 export.xml
 export_cda.xml
 electrocardiograms/
 workout-routes/
 data/
 output/
+
+# Local Claude Code settings (personal permissions)
+.claude/settings.local.json
+
+# macOS
+.DS_Store
