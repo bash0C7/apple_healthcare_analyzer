@@ -69,15 +69,15 @@ bundle exec ruby scripts/analyze.rb 20260101 20260329
 
 ### 3. Claude Code でレポート生成
 
-Claude Code を使っている場合、`/health` スラッシュコマンドでサブエージェントが自動的に：
+Claude Code を使っている場合、`/apple-health-analyze` スラッシュコマンドでサブエージェントが自動的に：
 
 1. `analyze.rb` を実行してデータ取得
 2. 健康状態サマリー・Body Battery推移・4週間フォーキャスト・アドバイスを日本語でレポート
 
 ```
-/health                      # 直近90日
-/health 30                   # 直近30日
-/health 20260101 20260329    # 日付範囲指定
+/apple-health-analyze                      # 直近90日
+/apple-health-analyze 30                   # 直近30日
+/apple-health-analyze 20260101 20260329    # 日付範囲指定
 ```
 
 ## Body Battery 計算式
