@@ -2,7 +2,7 @@
 
 Apple Health の `export.xml`（数GB）から健康指標を抽出・分析する Ruby ツール。
 
-Claude Code の `/health` スラッシュコマンドで、Body Battery・トレンド分析・4週間フォーキャストを日本語で自動レポートします。
+Claude Code の `/apple-health-analyze` コマンドで、Body Battery・トレンド分析・マルチホライズンフォーキャスト（1週〜6ヶ月）を日本語で自動レポートします。
 
 ## 機能
 
@@ -72,7 +72,7 @@ bundle exec ruby scripts/analyze.rb 20260101 20260329
 Claude Code を使っている場合、`/apple-health-analyze` スラッシュコマンドでサブエージェントが自動的に：
 
 1. `analyze.rb` を実行してデータ取得
-2. 健康状態サマリー・Body Battery推移・4週間フォーキャスト・アドバイスを日本語でレポート
+2. 健康状態サマリー・Body Battery推移・マルチホライズンフォーキャスト（1週〜6ヶ月）・アドバイスを日本語でレポート
 
 ```
 /apple-health-analyze                      # 直近90日
