@@ -2,6 +2,7 @@ GEM
   remote: https://rubygems.org/
   specs:
     bigdecimal (4.1.0)
+    csv (3.3.5)
     ox (2.14.23)
       bigdecimal (>= 3.0)
 
@@ -10,10 +11,12 @@ PLATFORMS
   ruby
 
 DEPENDENCIES
+  csv
   ox
 
 CHECKSUMS
   bigdecimal (4.1.0) sha256=6dc07767aa3dc456ccd48e7ae70a07b474e9afd7c5bc576f80bd6da5c8dd6cae
+  csv (3.3.5) sha256=6e5134ac3383ef728b7f02725d9872934f523cb40b961479f69cf3afa6c8e73f
   ox (2.14.23) sha256=4a9aedb4d6c78c5ebac1d7287dc7cc6808e14a8831d7adb727438f6a1b461b66
 
 BUNDLED WITH
