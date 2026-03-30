@@ -7,6 +7,7 @@ require 'csv'
 require 'date'
 require 'time'
 require 'fileutils'
+require 'tmpdir'
 
 TARGETS = {
   'HKQuantityTypeIdentifierStepCount'          => 'StepCount',
@@ -34,9 +35,11 @@ AGGREGATION = {
   'RespiratoryRate'    => :mean,
 }.freeze
 
-CSV_HEADERS = %w[creationDate startDate endDate value unit sourceName].freeze
-OUTPUT_DIR  = 'output'.freeze
+CSV_HEADERS  = %w[creationDate startDate endDate value unit sourceName].freeze
+OUTPUT_DIR   = 'output'.freeze
 VALID_GRAINS = %w[full daily weekly monthly].freeze
+SESSION_ID   = "#{Time.now.strftime('%Y%m%d_%H%M%S')}_#{Process.pid}".freeze
+TMP_DIR      = File.join(Dir.tmpdir, "health_extract_#{SESSION_ID}").freeze
 
 def parse_args(argv)
   xml_path = argv[0] || abort('Usage: ruby scripts/extract.rb <xml> [from to [grain]]')
@@ -53,9 +56,9 @@ def parse_args(argv)
 end
 
 def build_writers
-  FileUtils.mkdir_p(OUTPUT_DIR)
+  FileUtils.mkdir_p(TMP_DIR)
   TARGETS.each_with_object({}) do |(_, metric), writers|
-    path = File.join(OUTPUT_DIR, "#{metric}.csv")
+    path = File.join(TMP_DIR, "#{metric}.csv")
     csv  = CSV.open(path, 'w', encoding: 'UTF-8')
     csv << CSV_HEADERS
     writers[metric] = csv
@@ -64,6 +67,17 @@ end
 
 def close_writers(writers)
   writers.each_value(&:close)
+end
+
+def flush_to_output
+  FileUtils.mkdir_p(OUTPUT_DIR)
+  TARGETS.each_value do |metric|
+    src = File.join(TMP_DIR, "#{metric}.csv")
+    dst = File.join(OUTPUT_DIR, "#{metric}.csv")
+    FileUtils.mv(src, dst)
+  end
+  FileUtils.rmdir(TMP_DIR)
+  $stderr.puts "Output written to #{OUTPUT_DIR}/ (session: #{SESSION_ID})"
 end
 
 class SaxHandler < Ox::Sax
@@ -188,4 +202,5 @@ end
 
 handler.flush unless grain == 'full'
 close_writers(writers)
+flush_to_output
 $stderr.puts 'Extraction complete.'
