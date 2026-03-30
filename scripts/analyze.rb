@@ -31,8 +31,12 @@ end
 
 def load_baselines(db)
   rows = db.execute("SELECT key, value FROM meta WHERE key IN ('baseline_rhr_p10', 'baseline_hrv_mean')")
-  h = rows.each_with_object({}) { |r, acc| acc[r['key']] = r['value'].to_f }
-  [h['baseline_rhr_p10'] || 55.0, h['baseline_hrv_mean']]
+  h        = rows.each_with_object({}) { |r, acc| acc[r['key']] = r['value'] }
+  rhr_p10  = h['baseline_rhr_p10'].to_f
+  rhr_p10  = 55.0 if rhr_p10 <= 0
+  hrv_raw  = h['baseline_hrv_mean'].to_f
+  hrv_mean = hrv_raw > 0 ? hrv_raw : nil
+  [rhr_p10, hrv_mean]
 end
 
 def load_daily_rows(db, from, to)
@@ -45,6 +49,11 @@ def load_daily_rows(db, from, to)
   SQL
 end
 
+ALLOWED_SUMMARY_COLUMNS = %w[
+  step_count active_energy body_mass body_fat heart_rate
+  resting_hr hrv respiratory_rate vo2max sleep_hours asleep_hours body_battery
+].freeze
+
 def mean_of(vals)
   valid = vals.compact
   return nil if valid.empty?
@@ -52,6 +61,7 @@ def mean_of(vals)
 end
 
 def recent_7d_mean(db, column, to)
+  raise ArgumentError, "Invalid column: #{column}" unless ALLOWED_SUMMARY_COLUMNS.include?(column)
   rows = db.execute(<<~SQL, [to.to_s])
     SELECT #{column} FROM (
       SELECT #{column} FROM daily_summary
@@ -63,6 +73,7 @@ def recent_7d_mean(db, column, to)
 end
 
 def latest_non_null(db, column, to)
+  raise ArgumentError, "Invalid column: #{column}" unless ALLOWED_SUMMARY_COLUMNS.include?(column)
   db.execute(<<~SQL, [to.to_s]).first&.fetch(column)
     SELECT #{column} FROM daily_summary
     WHERE date <= ? AND #{column} IS NOT NULL

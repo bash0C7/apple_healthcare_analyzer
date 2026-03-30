@@ -3,12 +3,23 @@
     "allow": [
       "Bash(bundle exec ruby scripts/analyze.rb*)",
       "Bash(bundle exec ruby scripts/extract.rb*)",
+      "Bash(bundle exec ruby scripts/import_xml.rb*)",
+      "Bash(bundle exec ruby scripts/build_summary.rb*)",
+      "Bash(bundle exec ruby scripts/load_db.rb*)",
       "Bash(bundle install*)",
       "Bash(ruby -v)",
       "Bash(ruby --version)",
       "Bash(gem list*)",
       "Bash(ls*)",
-      "Bash(wc -l output/*.csv)"
+      "Bash(wc -l output/*.csv)",
+      "Bash(sqlite3 db/health.db*)"
     ]
+  },
+  "mcpServers": {
+    "health-db": {
+      "command": "bundle",
+      "args": ["exec", "ruby", "scripts/mcp_server.rb"],
+      "cwd": "/Users/bash/Downloads/apple_health_export"
+    }
   }
 }

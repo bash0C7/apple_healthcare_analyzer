@@ -65,6 +65,16 @@ def open_db(path)
   db
 end
 
+# YYYY-MM-DD / YYYY-MM / "YYYY-MM-DD HH:MM:SS +ZZZZ" すべてに対応
+def parse_date_flexible(str)
+  s = str.to_s.strip
+  return nil if s.empty?
+  Date.parse(s)
+rescue Date::Error
+  # "YYYY-MM" 形式にフォールバック
+  Date.strptime(s[0, 7], '%Y-%m') rescue nil
+end
+
 def load_csv_rows(metric, output_dir)
   path = File.join(output_dir, "#{metric}.csv")
   unless File.exist?(path)
@@ -84,8 +94,8 @@ def build_sleep_daily(rows)
   daily = Hash.new { |h, k| h[k] = { total_min: 0.0, asleep_min: 0.0 } }
   rows.each do |row|
     if row['unit'].to_s == 'min'
-      date = row['startDate'].to_s.strip
-      date = Date.parse(date).to_s rescue next
+      date = parse_date_flexible(row['startDate'])&.to_s
+      next if date.nil?
       min  = row['value'].to_f
       next if min <= 0
       daily[date][:total_min]  += min
@@ -107,8 +117,8 @@ end
 def build_metric_daily(rows)
   daily = {}
   rows.each do |row|
-    date  = row['startDate'].to_s.strip
-    date  = Date.parse(date).to_s rescue next
+    date  = parse_date_flexible(row['startDate'])&.to_s
+    next if date.nil?
     value = row['value'].to_f
     next if value <= 0 || value > 1_000_000
     daily[date] = value
@@ -118,16 +128,20 @@ end
 
 # 全CSVをインポートし、影響を受けたdate一覧を返す
 def upsert_records(db, output_dir)
-  stmt  = db.prepare('INSERT OR REPLACE INTO records (date, metric, value, unit) VALUES (?, ?, ?, ?)')
+  stmt  = db.prepare(<<~SQL)
+    INSERT INTO records (date, metric, value, unit) VALUES (?, ?, ?, ?)
+    ON CONFLICT(metric, date) DO UPDATE SET value=excluded.value, unit=excluded.unit
+  SQL
   dates = []
   total = 0
 
   db.transaction do
     (METRICS - ['SleepAnalysis']).each do |metric|
       rows  = load_csv_rows(metric, output_dir)
+      # unit はメトリクス内で統一されているので最初の行から取得
+      unit  = rows.first&.fetch('unit', '') || ''
       daily = build_metric_daily(rows)
       daily.each do |date, value|
-        unit = rows.find { |r| Date.parse(r['startDate'].to_s).to_s == date rescue false }&.fetch('unit', '') || ''
         stmt.execute(date, metric, value, unit)
         dates << date
       end
@@ -135,7 +149,8 @@ def upsert_records(db, output_dir)
       total += daily.size
     end
 
-    # SleepAnalysisは別処理
+    # SleepAnalysisは別処理。
+    # 'SleepAsleep' は METRICS 外の内部メトリクス（総睡眠 vs Asleep分割用）。
     sleep_rows  = load_csv_rows('SleepAnalysis', output_dir)
     sleep_daily = build_sleep_daily(sleep_rows)
     sleep_daily.each do |date, data|
