@@ -1,216 +1,197 @@
 # frozen_string_literal: true
+# Usage: bundle exec ruby scripts/analyze.rb [days=90]
+#        bundle exec ruby scripts/analyze.rb YYYYMMDD YYYYMMDD
+# Outputs JSON to stdout. Progress/errors to stderr.
 
 require 'csv'
 require 'date'
 require 'json'
+require 'time'
 
 OUTPUT_DIR = 'output'.freeze
 
-CSV_FILES = {
-  step_count:         'StepCount.csv',
-  body_mass:          'BodyMass.csv',
-  resting_heart_rate: 'RestingHeartRate.csv',
-  active_energy:      'ActiveEnergyBurned.csv',
-  vo2max:             'VO2Max.csv',
-  body_fat:           'BodyFatPercentage.csv',
-  sleep:              'SleepAnalysis.csv'
-}.freeze
-
 def parse_args(argv)
-  today = Date.today
-  case argv.length
-  when 0
-    [today - 89, today]
-  when 1
-    days = argv[0].to_i
-    [today - (days - 1), today]
-  when 2
-    [Date.strptime(argv[0], '%Y%m%d'), Date.strptime(argv[1], '%Y%m%d')]
+  if argv.length == 2
+    from = Date.strptime(argv[0], '%Y%m%d')
+    to   = Date.strptime(argv[1], '%Y%m%d')
   else
-    abort('Usage: analyze.rb [days | from_yyyymmdd to_yyyymmdd]')
+    days = (argv[0] || 90).to_i
+    to   = Date.today
+    from = to - days + 1
   end
+  [from, to]
 end
 
 def load_csv(metric)
-  path = File.join(OUTPUT_DIR, CSV_FILES[metric])
+  path = File.join(OUTPUT_DIR, "#{metric}.csv")
   unless File.exist?(path)
-    $stderr.puts "WARN: missing #{path}, skipping"
-    return {}
+    $stderr.puts "WARN: #{path} not found, skipping"
+    return []
   end
-  rows = {}
-  CSV.foreach(path, headers: true) do |row|
-    month_key = row['startDate'].to_s.strip
-    rows[month_key] = row
-  end
-  rows
+  CSV.read(path, headers: true)
 rescue => e
   $stderr.puts "WARN: failed to read #{path}: #{e.message}"
-  {}
+  []
 end
 
-def days_in_month(month_key)
-  year, mon = month_key.split('-').map(&:to_i)
-  Date.new(year, mon, -1).day
+def parse_date(str)
+  return nil if str.nil? || str.empty?
+  Date.parse(str)
+rescue ArgumentError
+  nil
 end
 
-def month_in_range?(month_key, from_date, to_date)
-  year, mon = month_key.split('-').map(&:to_i)
-  month_start = Date.new(year, mon, 1)
-  month_end   = Date.new(year, mon, -1)
-  month_end >= from_date && month_start <= to_date
-end
-
-VO2MAX_MAX = 100.0   # ml/min/kg — filter out corrupted aggregated values
-SAFE_FLOAT_MAX = 1_000_000.0
-
-def safe_float(val, max: SAFE_FLOAT_MAX)
-  return nil if val.nil?
-  return nil if val.to_s.match?(/\A\s*[-+]?Inf/i)
-  f = val.to_f
-  return nil if f.infinite? || f.nan? || f > max
-  f
-end
-
-def compute_rhr_p10_all
-  path = File.join(OUTPUT_DIR, CSV_FILES[:resting_heart_rate])
-  unless File.exist?(path)
-    $stderr.puts "WARN: missing #{path} for baseline"
-    return nil
+# Aggregate sum-type metrics (StepCount, ActiveEnergyBurned) by startDate day
+def aggregate_sum(metric, from, to)
+  rows = load_csv(metric)
+  daily = Hash.new(0.0)
+  rows.each do |row|
+    d = parse_date(row['startDate'])
+    next unless d && d >= from && d <= to
+    daily[d] += row['value'].to_f
   end
-  vals = []
-  CSV.foreach(path, headers: true) do |row|
-    v = safe_float(row['value'])
-    vals << v if v
+  daily
+end
+
+# Aggregate mean-type metrics (BodyMass, HeartRate, RestingHeartRate, VO2Max, BodyFatPercentage)
+# Returns hash of date => last value in day (for body measurements) or mean (for HR)
+def aggregate_last(metric, from, to)
+  rows = load_csv(metric)
+  daily = {}
+  rows.each do |row|
+    d = parse_date(row['startDate'])
+    next unless d && d >= from && d <= to
+    v = row['value'].to_f
+    next if v <= 0 || v > 1_000_000
+    daily[d] = v
   end
-  return nil if vals.empty?
-  sorted = vals.sort
-  idx = [(sorted.length * 0.1).floor - 1, 0].max
-  sorted[idx].round(1)
+  daily
 end
 
-def build_months(from_date, to_date)
-  months = []
-  year, mon = from_date.year, from_date.month
-  loop do
-    key = format('%04d-%02d', year, mon)
-    months << key
-    break if year == to_date.year && mon == to_date.month
-    mon += 1
-    if mon > 12
-      mon = 1
-      year += 1
-    end
+def aggregate_mean(metric, from, to)
+  rows = load_csv(metric)
+  sums   = Hash.new(0.0)
+  counts = Hash.new(0)
+  rows.each do |row|
+    d = parse_date(row['startDate'])
+    next unless d && d >= from && d <= to
+    v = row['value'].to_f
+    next if v <= 0
+    sums[d]   += v
+    counts[d] += 1
   end
-  months
+  sums.each_with_object({}) { |(d, s), h| h[d] = s / counts[d] }
 end
 
-def row_value(rows, month_key, divisor: 1, max: SAFE_FLOAT_MAX)
-  row = rows[month_key]
-  return nil unless row
-  v = safe_float(row['value'], max: max)
-  return nil unless v
-  (v / divisor).round(4)
+# Sleep: sum (endDate - startDate) in hours, keyed by endDate day
+def aggregate_sleep(from, to)
+  rows = load_csv('SleepAnalysis')
+  daily = Hash.new(0.0)
+  rows.each do |row|
+    d = parse_date(row['endDate'])
+    next unless d && d >= from && d <= to
+    start_t = Time.parse(row['startDate']) rescue next
+    end_t   = Time.parse(row['endDate'])   rescue next
+    hours = (end_t - start_t) / 3600.0
+    daily[d] += hours if hours > 0 && hours < 24
+  end
+  daily
 end
 
-def build_daily_entry(month_key, data_map, baseline_rhr)
-  days = days_in_month(month_key)
-  steps        = row_value(data_map[:step_count],         month_key, divisor: days)
-  body_mass    = row_value(data_map[:body_mass],          month_key)
-  resting_hr   = row_value(data_map[:resting_heart_rate], month_key)
-  active_kcal  = row_value(data_map[:active_energy],      month_key, divisor: days)
-  sleep_min    = row_value(data_map[:sleep],              month_key)
-  sleep_hours  = sleep_min ? (sleep_min / days / 60.0).round(2) : nil
-  body_fat_raw = row_value(data_map[:body_fat],           month_key)
-  body_fat     = body_fat_raw ? (body_fat_raw * 100).round(2) : nil
-  vo2          = row_value(data_map[:vo2max],             month_key, max: VO2MAX_MAX)
+# Compute baseline RHR (10th percentile over full dataset)
+def baseline_rhr_p10
+  rows = load_csv('RestingHeartRate')
+  values = rows.filter_map { |r| v = r['value'].to_f; v > 0 ? v : nil }
+  return 55.0 if values.empty?
+  values.sort[values.length / 10]
+end
 
-  battery = body_battery(sleep_hours, resting_hr, active_kcal, baseline_rhr)
+def body_battery(sleep_h, rhr, active_kcal, baseline_rhr)
+  scores = []
+  if sleep_h
+    scores << [sleep_h / 7.5 * 40, 0, 40].sort[1]
+  end
+  if rhr && baseline_rhr
+    scores << [[40 - [rhr - baseline_rhr, 0].max * 2.5, 0].max, 40].min
+  end
+  if active_kcal
+    scores << [active_kcal / 600.0 * 20, 0, 20].sort[1]
+  end
+  return nil if scores.empty?
+  # Scale proportionally if components are missing
+  present = scores.length
+  total   = 3
+  (scores.sum * total.to_f / present).round
+end
 
+def mean_of(arr)
+  valid = arr.compact
+  return nil if valid.empty?
+  (valid.sum / valid.length.to_f).round(2)
+end
+
+def recent_7d_mean(daily_hash, to)
+  vals = (0..6).filter_map { |i| daily_hash[to - i] }
+  mean_of(vals)
+end
+
+from, to = parse_args(ARGV)
+$stderr.puts "Analyzing #{from} to #{to}..."
+
+baseline = baseline_rhr_p10
+
+steps   = aggregate_sum('StepCount',          from, to)
+energy  = aggregate_sum('ActiveEnergyBurned', from, to)
+sleep   = aggregate_sleep(from, to)
+rhr     = aggregate_mean('RestingHeartRate',  from, to)
+hr      = aggregate_mean('HeartRate',         from, to)
+mass    = aggregate_last('BodyMass',          from, to)
+fat     = aggregate_last('BodyFatPercentage', from, to)
+vo2     = aggregate_last('VO2Max',            from, to)
+
+# Fix BodyFatPercentage: convert 0-1 fraction to percentage if needed
+fat = fat.transform_values { |v| v < 1.0 ? (v * 100).round(2) : v.round(2) } unless fat.empty?
+
+all_dates = (from..to).to_a
+
+daily = all_dates.map do |d|
+  bb = body_battery(sleep[d], rhr[d], energy[d], baseline)
   {
-    'date'          => month_key,
-    'step_count'    => steps,
-    'body_mass'     => body_mass,
-    'resting_hr'    => resting_hr,
-    'active_energy' => active_kcal,
-    'sleep_hours'   => sleep_hours,
-    'body_fat'      => body_fat,
-    'vo2max'        => vo2,
-    'body_battery'  => battery
+    'date'          => d.to_s,
+    'step_count'    => steps[d]&.round(0),
+    'body_mass'     => mass[d]&.round(2),
+    'resting_hr'    => rhr[d]&.round(1),
+    'active_energy' => energy[d]&.round(1),
+    'sleep_hours'   => sleep[d]&.round(2),
+    'body_fat'      => fat[d],
+    'vo2max'        => vo2[d]&.round(1),
+    'body_battery'  => bb,
   }
 end
 
-def clamp(val, min, max)
-  [[val, min].max, max].min
-end
+# Summary stats
+step_vals   = steps.values
+energy_vals = energy.values
+sleep_vals  = sleep.values.select { |v| v > 0 }
+rhr_vals    = rhr.values
+mass_vals   = mass.values
 
-def body_battery(sleep_hours, resting_hr, active_kcal, baseline_rhr)
-  components = []
-  components << clamp(sleep_hours / 7.5 * 40, 0, 40)   if sleep_hours
-  components << clamp(40 - [resting_hr - baseline_rhr, 0].max * 2.5, 0, 40) if resting_hr && baseline_rhr
-  components << clamp(active_kcal / 600.0 * 20, 0, 20) if active_kcal
-  return nil if components.empty?
-  present = components.length
-  total   = components.sum
-  total   = total * 3.0 / present if present < 3
-  total.round
-end
-
-def mean(arr)
-  return nil if arr.empty?
-  (arr.sum / arr.length.to_f).round(2)
-end
-
-def build_summary(daily_entries, data_map, from_date, to_date)
-  steps   = daily_entries.filter_map { |d| d['step_count'] }
-  masses  = daily_entries.filter_map { |d| d['body_mass'] }
-  rhrs    = daily_entries.filter_map { |d| d['resting_hr'] }
-  energy  = daily_entries.filter_map { |d| d['active_energy'] }
-  sleeps  = daily_entries.filter_map { |d| d['sleep_hours'] }
-  fats    = daily_entries.filter_map { |d| d['body_fat'] }
-  vo2s    = daily_entries.filter_map { |d| d['vo2max'] }
-
-  recent = daily_entries.last(7)
-  r_steps  = recent.filter_map { |d| d['step_count'] }
-  r_energy = recent.filter_map { |d| d['active_energy'] }
-  r_sleeps = recent.filter_map { |d| d['sleep_hours'] }
-
-  {
-    'step_count'         => { 'mean' => mean(steps),  'max' => steps.max&.round(2), 'min' => steps.min&.round(2), 'recent_7d_mean' => mean(r_steps) },
-    'body_mass'          => { 'mean' => mean(masses),  'latest' => masses.last },
-    'resting_heart_rate' => { 'mean' => mean(rhrs),    'min' => rhrs.min&.round(2),  'latest' => rhrs.last },
-    'active_energy'      => { 'mean' => mean(energy),  'recent_7d_mean' => mean(r_energy) },
-    'sleep_hours'        => { 'mean' => mean(sleeps),  'recent_7d_mean' => mean(r_sleeps) },
-    'body_fat'           => { 'latest' => fats.last },
-    'vo2max'             => { 'latest' => vo2s.last }
-  }
-end
-
-from_date, to_date = parse_args(ARGV)
-$stderr.puts "Period: #{from_date} to #{to_date}"
-
-baseline_rhr = compute_rhr_p10_all
-$stderr.puts "Baseline RHR p10: #{baseline_rhr}"
-
-data_map = CSV_FILES.keys.each_with_object({}) do |metric, h|
-  h[metric] = load_csv(metric)
-end
-
-months = build_months(from_date, to_date)
-$stderr.puts "Months in range: #{months.length}"
-
-daily_entries = months
-  .select { |m| month_in_range?(m, from_date, to_date) }
-  .map    { |m| build_daily_entry(m, data_map, baseline_rhr) }
-  .sort_by { |d| d['date'] }
-
-summary = build_summary(daily_entries, data_map, from_date, to_date)
-
-output = {
-  'generated_at' => Date.today.to_s,
-  'period'       => { 'from' => from_date.to_s, 'to' => to_date.to_s, 'days' => (to_date - from_date).to_i + 1 },
-  'baseline'     => { 'resting_hr_p10' => baseline_rhr },
-  'summary'      => summary,
-  'daily'        => daily_entries
+summary = {
+  'step_count'         => { 'mean' => mean_of(step_vals), 'max' => step_vals.max&.round(0), 'min' => step_vals.min&.round(0), 'recent_7d_mean' => recent_7d_mean(steps, to) },
+  'body_mass'          => { 'mean' => mean_of(mass_vals), 'latest' => mass[to] || mass.max_by { |d, _| d }&.last&.round(2) },
+  'resting_heart_rate' => { 'mean' => mean_of(rhr_vals),  'min' => rhr_vals.min&.round(1), 'latest' => rhr[to] || rhr.max_by { |d, _| d }&.last&.round(1) },
+  'active_energy'      => { 'mean' => mean_of(energy_vals), 'recent_7d_mean' => recent_7d_mean(energy, to) },
+  'sleep_hours'        => { 'mean' => mean_of(sleep_vals), 'recent_7d_mean' => recent_7d_mean(sleep, to) },
+  'body_fat'           => { 'latest' => fat.max_by { |d, _| d }&.last },
+  'vo2max'             => { 'latest' => vo2.max_by { |d, _| d }&.last&.round(1) },
 }
 
-puts JSON.generate(output)
+result = {
+  'generated_at' => Date.today.to_s,
+  'period'       => { 'from' => from.to_s, 'to' => to.to_s, 'days' => (to - from + 1).to_i },
+  'baseline'     => { 'resting_hr_p10' => baseline.round(1) },
+  'summary'      => summary,
+  'daily'        => daily,
+}
+
+puts JSON.pretty_generate(result)
