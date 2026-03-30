@@ -61,24 +61,31 @@ class XmlImporter < Ox::Sax
       VALUES (?, ?, ?, ?, ?, ?, ?)
     SQL
     @attrs      = nil
-    @collecting = false
+    @depth      = 0
+    @record_depth = nil
     @count      = 0
     @batch      = []
   end
 
   def start_element(name)
-    @collecting = (name == :Record)
-    @attrs      = {} if @collecting
+    @depth += 1
+    if name == :Record && @record_depth.nil?
+      @attrs        = {}
+      @record_depth = @depth
+    end
   end
 
   def attr(name, value)
-    @attrs[name] = value if @collecting
+    @attrs[name] = value if @attrs && @depth == @record_depth
   end
 
   def end_element(name)
-    process_record(@attrs) if name == :Record && @attrs
-    @attrs      = nil
-    @collecting = false
+    if name == :Record && @depth == @record_depth
+      process_record(@attrs) if @attrs
+      @attrs        = nil
+      @record_depth = nil
+    end
+    @depth -= 1
   end
 
   def flush
