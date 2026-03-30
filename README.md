@@ -150,18 +150,22 @@ WHERE date >= '2026-01-01' ORDER BY date;
 
 **Claude Desktop への追加**
 
-`~/Library/Application Support/Claude/claude_desktop_config.json` に以下を追記します（`bundle` のパスは `which bundle` で確認）：
+`~/Library/Application Support/Claude/claude_desktop_config.json` に以下を追記します：
 
 ```json
 {
   "mcpServers": {
     "health-db": {
-      "command": "/Users/yourname/.rbenv/shims/bundle",
-      "args": ["exec", "ruby", "scripts/mcp_server.rb"],
-      "cwd": "/path/to/apple-health-export"
+      "command": "/path/to/apple-health-export/scripts/start_mcp.sh"
     }
   }
 }
+```
+
+`start_mcp.sh` はプロジェクトディレクトリへの `cd` と `bundle exec ruby scripts/mcp_server.rb` の起動をまとめたスクリプトです。実行権限が必要です：
+
+```bash
+chmod +x scripts/start_mcp.sh
 ```
 
 Claude Desktop を再起動後、`query_health` / `get_db_info` ツールが使えるようになります。
@@ -199,6 +203,8 @@ FROM daily_summary GROUP BY year, season ORDER BY year, season;
 | `meta` | ベースライン・構築日時 `(key PK, value)` |
 
 ## 身体スコアリング計算式
+
+> **注意** このスコアは科学的・医学的な裏付けのある指標ではありません。作者本人が日々の体調変化をざっくり把握するために独自に設計した簡易的なものです。傾向の参考としてご利用ください。
 
 HRV・安静時心拍・睡眠時呼吸数から算出する 0〜100 の総合スコア。
 
