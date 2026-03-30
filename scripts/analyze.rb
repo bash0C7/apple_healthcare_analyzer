@@ -2,6 +2,9 @@
 # Usage: bundle exec ruby scripts/analyze.rb [days=90]
 #        bundle exec ruby scripts/analyze.rb YYYYMMDD YYYYMMDD
 # Outputs JSON to stdout. Progress/errors to stderr.
+#
+# NOTE: CSVデータは月次集計 (startDate = "YYYY-MM" 形式)。
+#       指定期間と重なる月のデータを取得し、月次サマリーを出力する。
 
 require 'csv'
 require 'date'
@@ -34,76 +37,100 @@ rescue => e
   []
 end
 
-def parse_date(str)
+# "YYYY-MM" => Date("YYYY-MM-01")、それ以外はDate.parse
+def parse_month_key(str)
   return nil if str.nil? || str.empty?
-  Date.parse(str)
+  if str.match?(/\A\d{4}-\d{2}\z/)
+    Date.parse("#{str}-01")
+  else
+    # 日付文字列から月初日を返す
+    d = Date.parse(str)
+    Date.new(d.year, d.month, 1)
+  end
 rescue ArgumentError
   nil
 end
 
-# Aggregate sum-type metrics (StepCount, ActiveEnergyBurned) by startDate day
-def aggregate_sum(metric, from, to)
-  rows = load_csv(metric)
-  daily = Hash.new(0.0)
-  rows.each do |row|
-    d = parse_date(row['startDate'])
-    next unless d && d >= from && d <= to
-    daily[d] += row['value'].to_f
-  end
-  daily
+# 指定期間(from..to)と重なる月キーか判定
+def month_in_range?(month_start, from, to)
+  # month_start は月初日
+  # 月末日 = 翌月初日 - 1
+  month_end = (month_start >> 1) - 1
+  month_start <= to && month_end >= from
 end
 
-# Aggregate mean-type metrics (BodyMass, HeartRate, RestingHeartRate, VO2Max, BodyFatPercentage)
-# Returns hash of date => last value in day (for body measurements) or mean (for HR)
-def aggregate_last(metric, from, to)
+# 月次データを { Date(月初日) => value } で返す（合計型）
+def load_monthly_sum(metric, from, to)
   rows = load_csv(metric)
-  daily = {}
+  result = {}
   rows.each do |row|
-    d = parse_date(row['startDate'])
-    next unless d && d >= from && d <= to
+    ms = parse_month_key(row['startDate'])
+    next unless ms && month_in_range?(ms, from, to)
+    v = row['value'].to_f
+    result[ms] = (result[ms] || 0.0) + v
+  end
+  result
+end
+
+# 月次データを { Date(月初日) => value } で返す（最終値型）
+def load_monthly_last(metric, from, to)
+  rows = load_csv(metric)
+  result = {}
+  rows.each do |row|
+    ms = parse_month_key(row['startDate'])
+    next unless ms && month_in_range?(ms, from, to)
     v = row['value'].to_f
     next if v <= 0 || v > 1_000_000
-    daily[d] = v
+    result[ms] = v
   end
-  daily
+  result
 end
 
-def aggregate_mean(metric, from, to)
+# 月次データを { Date(月初日) => mean_value } で返す（平均型）
+def load_monthly_mean(metric, from, to)
   rows = load_csv(metric)
-  sums   = Hash.new(0.0)
-  counts = Hash.new(0)
+  sums   = {}
+  counts = {}
   rows.each do |row|
-    d = parse_date(row['startDate'])
-    next unless d && d >= from && d <= to
+    ms = parse_month_key(row['startDate'])
+    next unless ms && month_in_range?(ms, from, to)
     v = row['value'].to_f
     next if v <= 0
-    sums[d]   += v
-    counts[d] += 1
+    sums[ms]   = (sums[ms]   || 0.0) + v
+    counts[ms] = (counts[ms] || 0)   + 1
   end
-  sums.each_with_object({}) { |(d, s), h| h[d] = s / counts[d] }
+  sums.each_with_object({}) { |(ms, s), h| h[ms] = s / counts[ms] }
 end
 
-# Sleep: sum (endDate - startDate) in hours keyed by endDate day.
-# Returns [sleep_hours_hash, asleep_hours_hash].
-# sleep_hours includes all categories; asleep_hours includes only Asleep* values.
+# 睡眠は月次集計ではなくSleepAnalysisの個別レコードを集計
 ASLEEP_PATTERN = /Asleep/.freeze
 
-def aggregate_sleep(from, to)
+def load_monthly_sleep(from, to)
   rows = load_csv('SleepAnalysis')
-  sleep_daily  = Hash.new(0.0)
-  asleep_daily = Hash.new(0.0)
+  sleep_monthly  = {}
+  asleep_monthly = {}
   rows.each do |row|
-    d = parse_date(row['endDate'])
-    next unless d && d >= from && d <= to
+    end_t = Time.parse(row['endDate']) rescue next
+    ed = Date.new(end_t.year, end_t.month, 1)
+    next unless month_in_range?(ed, from, to)
     start_t = Time.parse(row['startDate']) rescue next
-    end_t   = Time.parse(row['endDate'])   rescue next
     hours = (end_t - start_t) / 3600.0
     next unless hours > 0 && hours < 24
     val = row['value'].to_s
-    sleep_daily[d]  += hours
-    asleep_daily[d] += hours if ASLEEP_PATTERN.match?(val)
+    sleep_monthly[ed]  = (sleep_monthly[ed]  || 0.0) + hours
+    asleep_monthly[ed] = (asleep_monthly[ed] || 0.0) + hours if ASLEEP_PATTERN.match?(val)
   end
-  [sleep_daily, asleep_daily]
+
+  # 月あたりの平均睡眠時間（日数で割る）
+  sleep_daily_avg  = {}
+  asleep_daily_avg = {}
+  sleep_monthly.each do |ms, total|
+    # その月で実際にデータのある日数を概算（全体/31で割る代わりにdays_in_monthで）
+    days = Date.new(ms.year, ms.month, -1).day
+    sleep_daily_avg[ms]  = total / days
+    asleep_daily_avg[ms] = (asleep_monthly[ms] || 0.0) / days
+  end
+  [sleep_daily_avg, asleep_daily_avg]
 end
 
 # Compute baseline RHR (10th percentile over full dataset)
@@ -120,6 +147,20 @@ def baseline_hrv_mean
   values = rows.filter_map { |r| v = r['value'].to_f; v > 0 ? v : nil }
   return nil if values.empty?
   (values.sum / values.length.to_f).round(2)
+end
+
+# 全HRVデータを月次で返す（トレンド分析用）
+def load_all_monthly_hrv
+  rows = load_csv('HRV')
+  result = {}
+  rows.each do |row|
+    ms = parse_month_key(row['startDate'])
+    next unless ms
+    v = row['value'].to_f
+    next if v <= 0
+    result[ms] = v
+  end
+  result.sort.to_h
 end
 
 def body_battery(rhr, hrv, resp_rate, baseline_rhr, baseline_hrv)
@@ -151,9 +192,15 @@ def mean_of(arr)
   (valid.sum / valid.length.to_f).round(2)
 end
 
-def recent_7d_mean(daily_hash, to)
-  vals = (0..6).filter_map { |i| daily_hash[to - i] }
-  mean_of(vals)
+# 指定期間をカバーする月のリストを返す
+def months_in_range(from, to)
+  months = []
+  ms = Date.new(from.year, from.month, 1)
+  while ms <= to
+    months << ms
+    ms = ms >> 1
+  end
+  months
 end
 
 from, to = parse_args(ARGV)
@@ -162,60 +209,96 @@ $stderr.puts "Analyzing #{from} to #{to}..."
 baseline_rhr = baseline_rhr_p10
 baseline_hrv = baseline_hrv_mean
 
-steps   = aggregate_sum('StepCount',          from, to)
-energy  = aggregate_sum('ActiveEnergyBurned', from, to)
-sleep, asleep = aggregate_sleep(from, to)
-rhr     = aggregate_mean('RestingHeartRate',  from, to)
-hrv     = aggregate_mean('HRV',              from, to)
-resp    = aggregate_mean('RespiratoryRate',  from, to)
-mass    = aggregate_last('BodyMass',          from, to)
-fat     = aggregate_last('BodyFatPercentage', from, to)
-vo2     = aggregate_last('VO2Max',            from, to)
+steps   = load_monthly_sum('StepCount',          from, to)
+energy  = load_monthly_sum('ActiveEnergyBurned', from, to)
+sleep_avg, asleep_avg = load_monthly_sleep(from, to)
+rhr     = load_monthly_mean('RestingHeartRate',  from, to)
+hrv     = load_monthly_mean('HRV',               from, to)
+resp    = load_monthly_mean('RespiratoryRate',    from, to)
+mass    = load_monthly_last('BodyMass',           from, to)
+fat     = load_monthly_last('BodyFatPercentage',  from, to)
+vo2     = load_monthly_last('VO2Max',             from, to)
 
 # Fix BodyFatPercentage: convert 0-1 fraction to percentage if needed
 fat = fat.transform_values { |v| v < 1.0 ? (v * 100).round(2) : v.round(2) } unless fat.empty?
 
-all_dates = (from..to).to_a
+target_months = months_in_range(from, to)
 
-daily = all_dates.map do |d|
-  bb = body_battery(rhr[d], hrv[d], resp[d], baseline_rhr, baseline_hrv)
+monthly = target_months.map do |ms|
+  month_label = ms.strftime('%Y-%m')
+  bb = body_battery(rhr[ms], hrv[ms], resp[ms], baseline_rhr, baseline_hrv)
   {
-    'date'             => d.to_s,
-    'step_count'       => steps[d]&.round(0),
-    'body_mass'        => mass[d]&.round(2),
-    'resting_hr'       => rhr[d]&.round(1),
-    'hrv'              => hrv[d]&.round(1),
-    'active_energy'    => energy[d]&.round(1),
-    'sleep_hours'      => sleep[d]&.round(2),
-    'asleep_hours'     => asleep[d]&.round(2),
-    'respiratory_rate' => resp[d]&.round(1),
-    'body_fat'         => fat[d],
-    'vo2max'           => vo2[d]&.round(1),
+    'month'            => month_label,
+    'step_count_total' => steps[ms]&.round(0),
+    'body_mass'        => mass[ms]&.round(2),
+    'resting_hr'       => rhr[ms]&.round(1),
+    'hrv'              => hrv[ms]&.round(1),
+    'active_energy_total' => energy[ms]&.round(1),
+    'sleep_hours_daily_avg'  => sleep_avg[ms]&.round(2),
+    'asleep_hours_daily_avg' => asleep_avg[ms]&.round(2),
+    'respiratory_rate' => resp[ms]&.round(2),
+    'body_fat'         => fat[ms],
+    'vo2max'           => vo2[ms]&.round(2),
     'body_battery'     => bb,
   }
 end
 
-# Summary stats
-step_vals   = steps.values
-energy_vals = energy.values
-sleep_vals  = sleep.values.select { |v| v > 0 }
-asleep_vals = asleep.values.select { |v| v > 0 }
-rhr_vals    = rhr.values
-hrv_vals    = hrv.values
-resp_vals   = resp.values
-mass_vals   = mass.values
+# Summary: 対象月の集計
+hrv_vals  = hrv.values
+rhr_vals  = rhr.values
+mass_vals = mass.values
+resp_vals = resp.values
+vo2_vals  = vo2.values
+
+# 最新月のデータ
+latest_month = target_months.max
+prev_months  = target_months.sort
+
+# 直近3ヶ月平均（トレンド用）
+recent3 = prev_months.last(3)
 
 summary = {
-  'step_count'         => { 'mean' => mean_of(step_vals), 'max' => step_vals.max&.round(0), 'min' => step_vals.min&.round(0), 'recent_7d_mean' => recent_7d_mean(steps, to) },
-  'body_mass'          => { 'mean' => mean_of(mass_vals), 'latest' => mass[to] || mass.max_by { |d, _| d }&.last&.round(2) },
-  'resting_heart_rate' => { 'mean' => mean_of(rhr_vals),  'min' => rhr_vals.min&.round(1), 'latest' => rhr[to] || rhr.max_by { |d, _| d }&.last&.round(1) },
-  'active_energy'      => { 'mean' => mean_of(energy_vals), 'recent_7d_mean' => recent_7d_mean(energy, to) },
-  'sleep_hours'        => { 'mean' => mean_of(sleep_vals), 'recent_7d_mean' => recent_7d_mean(sleep, to) },
-  'asleep_hours'       => { 'mean' => mean_of(asleep_vals), 'recent_7d_mean' => recent_7d_mean(asleep, to) },
-  'body_fat'           => { 'latest' => fat.max_by { |d, _| d }&.last },
-  'vo2max'             => { 'latest' => vo2.max_by { |d, _| d }&.last&.round(1) },
-  'hrv'                => { 'mean' => mean_of(hrv_vals), 'recent_7d_mean' => recent_7d_mean(hrv, to) },
-  'respiratory_rate'   => { 'mean' => mean_of(resp_vals), 'recent_7d_mean' => recent_7d_mean(resp, to) },
+  'months_covered'     => target_months.length,
+  'step_count'         => {
+    'monthly_total'        => steps[latest_month]&.round(0),
+    'daily_avg_this_month' => steps[latest_month] ? (steps[latest_month] / Date.new(latest_month.year, latest_month.month, -1).day).round(0) : nil,
+  },
+  'body_mass'          => {
+    'latest'  => (mass[latest_month] || mass.max_by { |d, _| d }&.last)&.round(2),
+    'mean_period' => mean_of(mass_vals),
+  },
+  'resting_heart_rate' => {
+    'latest'      => (rhr[latest_month] || rhr.max_by { |d, _| d }&.last)&.round(1),
+    'mean_period' => mean_of(rhr_vals),
+    'min_period'  => rhr_vals.min&.round(1),
+  },
+  'hrv'                => {
+    'latest'       => (hrv[latest_month] || hrv.max_by { |d, _| d }&.last)&.round(1),
+    'mean_period'  => mean_of(hrv_vals),
+    'recent3m_mean' => mean_of(recent3.filter_map { |ms| hrv[ms] }),
+  },
+  'respiratory_rate'   => {
+    'latest'      => (resp[latest_month] || resp.max_by { |d, _| d }&.last)&.round(2),
+    'mean_period' => mean_of(resp_vals),
+  },
+  'vo2max'             => {
+    'latest'      => (vo2[latest_month] || vo2.max_by { |d, _| d }&.last)&.round(2),
+  },
+  'body_fat'           => {
+    'latest'      => (fat[latest_month] || fat.max_by { |d, _| d }&.last),
+  },
+  'sleep_hours_daily_avg' => {
+    'latest'      => sleep_avg[latest_month]&.round(2),
+    'mean_period' => mean_of(sleep_avg.values),
+  },
+  'body_battery'       => {
+    'latest' => body_battery(
+      rhr[latest_month] || rhr.max_by { |d, _| d }&.last,
+      hrv[latest_month] || hrv.max_by { |d, _| d }&.last,
+      resp[latest_month] || resp.max_by { |d, _| d }&.last,
+      baseline_rhr, baseline_hrv
+    ),
+  },
 }
 
 result = {
@@ -223,7 +306,7 @@ result = {
   'period'       => { 'from' => from.to_s, 'to' => to.to_s, 'days' => (to - from + 1).to_i },
   'baseline'     => { 'resting_hr_p10' => baseline_rhr.round(1), 'hrv_mean' => baseline_hrv },
   'summary'      => summary,
-  'daily'        => daily,
+  'monthly'      => monthly,
 }
 
 puts JSON.pretty_generate(result)
