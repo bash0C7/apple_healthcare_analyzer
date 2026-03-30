@@ -2,3 +2,4 @@
 source "https://rubygems.org"
 gem "ox"
 gem "csv"
+gem "sqlite3"

@@ -25,7 +25,40 @@ cd apple-health-export
 bundle install
 ```
 
-Apple Health アプリでデータをエクスポートし、`export.xml` をプロジェクトルートに置く（`.gitignore` により追跡されません）。
+### Apple Health データの配置
+
+**1. iOS でエクスポート**
+
+1. iPhone の「ヘルスケア」アプリを開く
+2. 右上のプロフィールアイコン → 「すべてのヘルスケアデータを書き出す」
+3. しばらく待つと ZIP ファイルが生成される（数GBになることがある）
+4. 「書き出す」→ AirDrop や「ファイル」アプリ経由で Mac に転送
+
+**2. Mac で展開**
+
+ZIP ファイルをダブルクリックして展開すると、以下の構成のフォルダが生成される：
+
+```
+apple_health_export/
+├── export.xml          ← これが対象
+├── export_cda.xml
+├── electrocardiograms/
+└── workout-routes/
+```
+
+**3. プロジェクトルートに配置**
+
+```bash
+cp /path/to/apple_health_export/export.xml /path/to/this/repo/export.xml
+```
+
+または展開先フォルダがこのリポジトリと同じ場所にある場合：
+
+```bash
+cp ../apple_health_export/export.xml ./export.xml
+```
+
+`export.xml` はプロジェクトルート直下に置く（`.gitignore` により追跡されません）。
 
 ## 使い方
 

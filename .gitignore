@@ -6,6 +6,11 @@ workout-routes/
 data/
 output/
 
+# SQLite database (rebuild with load_db.rb)
+db/*.db
+db/*.db-shm
+db/*.db-wal
+
 # Local Claude Code settings (personal permissions)
 .claude/settings.local.json
 

@@ -5,19 +5,21 @@ GEM
     csv (3.3.5)
     ox (2.14.23)
       bigdecimal (>= 3.0)
+    sqlite3 (2.9.2-arm64-darwin)
 
 PLATFORMS
   arm64-darwin-24
-  ruby
 
 DEPENDENCIES
   csv
   ox
+  sqlite3
 
 CHECKSUMS
   bigdecimal (4.1.0) sha256=6dc07767aa3dc456ccd48e7ae70a07b474e9afd7c5bc576f80bd6da5c8dd6cae
   csv (3.3.5) sha256=6e5134ac3383ef728b7f02725d9872934f523cb40b961479f69cf3afa6c8e73f
   ox (2.14.23) sha256=4a9aedb4d6c78c5ebac1d7287dc7cc6808e14a8831d7adb727438f6a1b461b66
+  sqlite3 (2.9.2-arm64-darwin) sha256=d15bd9609a05f9d54930babe039585efc8cadd57517c15b64ec7dfa75158a5e9
 
 BUNDLED WITH
   4.0.3
