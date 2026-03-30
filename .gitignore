@@ -14,5 +14,8 @@ db/*.db-wal
 # Local Claude Code settings (personal permissions)
 .claude/settings.local.json
 
+# Superpowers plans/specs (auto-generated, not for project repo)
+docs/superpowers/
+
 # macOS
 .DS_Store

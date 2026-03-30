@@ -1,4 +1,4 @@
-# apple-health-export
+# apple_healthcare_analyzer
 
 Apple Health の `export.xml`（数GB規模）から健康指標を抽出・分析する Ruby ツール。
 
