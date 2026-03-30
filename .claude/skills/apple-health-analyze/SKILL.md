@@ -98,18 +98,16 @@ bundle exec ruby scripts/analyze.rb 20260101 20260330
 
 ## Body Battery の計算式
 
-Body Battery (0-100) = 4成分の加重スコア（欠損成分は比例補正）
+Body Battery (0-100) = 3成分の加重スコア（睡眠時間は除外 — Apple Healthの睡眠分析で別途確認）
 
 | 成分 | 配点 | 計算 |
 |------|------|------|
-| HRV（SDNN） | 40点 | `clamp(hrv / baseline_hrv_mean * 40, 0, 40)` |
-| 実睡眠時間（Asleep系） | 30点 | `clamp(asleep_hours / 7.0 * 30, 0, 30)` |
-| 安静時心拍 | 20点 | `clamp(20 - (rhr - baseline_rhr_p10) * 1.25, 0, 20)` |
-| 睡眠時呼吸数 | 10点 | `clamp(10 - |resp_rate - 14.0| * 1.5, 0, 10)` |
+| HRV（SDNN） | 55点 | `clamp(hrv / baseline_hrv_mean * 55, 0, 55)` |
+| 安静時心拍 | 30点 | `clamp(30 - (rhr - baseline_rhr_p10) * 1.875, 0, 30)` |
+| 睡眠時呼吸数 | 15点 | `clamp(15 - |resp_rate - 14.0| * 2.25, 0, 15)` |
 
 - `baseline_hrv_mean`: データセット全体のHRV平均値
 - `baseline_rhr_p10`: データセット全体のRHR 10パーセンタイル
-- 実睡眠 = AsleepCore + AsleepREM + AsleepDeep（InBedは除く）
 - 呼吸数最適値: 14回/分（睡眠中）
 - スコア解釈: 80-100=優秀, 60-79=良好, 40-59=普通, 40未満=要注意
 

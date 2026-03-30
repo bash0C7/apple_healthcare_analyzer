@@ -122,24 +122,20 @@ def baseline_hrv_mean
   (values.sum / values.length.to_f).round(2)
 end
 
-def body_battery(asleep_h, rhr, hrv, resp_rate, baseline_rhr, baseline_hrv)
+def body_battery(rhr, hrv, resp_rate, baseline_rhr, baseline_hrv)
   components = []
 
   if hrv && baseline_hrv && baseline_hrv > 0
-    components << { score: [[hrv / baseline_hrv * 40, 0].max, 40].min, weight: 40 }
-  end
-
-  if asleep_h
-    components << { score: [[asleep_h / 7.0 * 30, 0].max, 30].min, weight: 30 }
+    components << { score: [[hrv / baseline_hrv * 55, 0].max, 55].min, weight: 55 }
   end
 
   if rhr && baseline_rhr
-    components << { score: [[20 - [rhr - baseline_rhr, 0].max * 1.25, 0].max, 20].min, weight: 20 }
+    components << { score: [[30 - [rhr - baseline_rhr, 0].max * 1.875, 0].max, 30].min, weight: 30 }
   end
 
   if resp_rate
     dev = (resp_rate - 14.0).abs
-    components << { score: [[10 - dev * 1.5, 0].max, 10].min, weight: 10 }
+    components << { score: [[15 - dev * 2.25, 0].max, 15].min, weight: 15 }
   end
 
   return nil if components.empty?
@@ -182,7 +178,7 @@ fat = fat.transform_values { |v| v < 1.0 ? (v * 100).round(2) : v.round(2) } unl
 all_dates = (from..to).to_a
 
 daily = all_dates.map do |d|
-  bb = body_battery(asleep[d], rhr[d], hrv[d], resp[d], baseline_rhr, baseline_hrv)
+  bb = body_battery(rhr[d], hrv[d], resp[d], baseline_rhr, baseline_hrv)
   {
     'date'             => d.to_s,
     'step_count'       => steps[d]&.round(0),
