@@ -62,11 +62,116 @@ def close_writers(writers)
   writers.each_value(&:close)
 end
 
+class SaxHandler < Ox::Sax
+  def initialize(writers, from_date, to_date, grain)
+    @writers = writers
+    @from    = from_date
+    @to      = to_date
+    @grain   = grain
+    @attrs   = nil
+    @count   = 0
+    @buffers = {}
+  end
+
+  def start_element(name)
+    @attrs = {} if name == :Record
+  end
+
+  def attr(name, value)
+    @attrs[name] = value if @attrs
+  end
+
+  def end_element(name)
+    return unless name == :Record && @attrs
+    process_record(@attrs)
+    @attrs = nil
+  end
+
+  def flush
+    @buffers.each do |metric, keyed|
+      keyed.each { |key, buf| write_aggregated(@writers[metric], key, metric, buf) }
+    end
+  end
+
+  private
+
+  def process_record(attrs)
+    metric = TARGETS[attrs[:type]]
+    return unless metric
+
+    @count += 1
+    $stderr.puts "Processed #{@count} records..." if (@count % 100_000).zero?
+
+    return unless in_range?(attrs[:startDate])
+
+    @grain == 'full' ? write_full(@writers[metric], attrs) : accumulate(metric, attrs)
+  end
+
+  def in_range?(start_date_str)
+    return true if @from.nil?
+    date = Date.parse(start_date_str)
+    date >= @from && date <= @to
+  end
+
+  def write_full(csv, attrs)
+    csv << [attrs[:creationDate], attrs[:startDate], attrs[:endDate],
+            attrs[:value], attrs[:unit], attrs[:sourceName]]
+  end
+
+  def grain_key(start_date_str)
+    date = Date.parse(start_date_str)
+    case @grain
+    when 'daily'   then date.strftime('%Y-%m-%d')
+    when 'weekly'  then date.strftime('%Y-W%V')
+    when 'monthly' then date.strftime('%Y-%m')
+    end
+  end
+
+  def accumulate(metric, attrs)
+    key = grain_key(attrs[:startDate])
+    buf = (@buffers[metric] ||= {})[key] ||=
+            { sum: 0.0, count: 0, last_creation: nil, last_end: nil, unit: nil }
+
+    case AGGREGATION[metric]
+    when :sum
+      buf[:sum] += attrs[:value].to_f
+    when :mean
+      buf[:sum]   += attrs[:value].to_f
+      buf[:count] += 1
+    when :sleep
+      start_t     = Time.parse(attrs[:startDate])
+      end_t       = Time.parse(attrs[:endDate])
+      buf[:sum]  += (end_t - start_t) / 60.0
+    end
+
+    buf[:last_creation] = attrs[:creationDate]
+    buf[:last_end]      = attrs[:endDate]
+    buf[:unit]          = attrs[:unit]
+  end
+
+  def write_aggregated(csv, key, metric, buf)
+    value = case AGGREGATION[metric]
+            when :sum   then buf[:sum].round(4)
+            when :mean  then (buf[:sum] / buf[:count]).round(4)
+            when :sleep then buf[:sum].round(2)
+            end
+    unit = AGGREGATION[metric] == :sleep ? 'min' : buf[:unit]
+    csv << [buf[:last_creation], key, buf[:last_end], value, unit, 'aggregated']
+  end
+end
+
 xml_path, from_date, to_date, grain = parse_args(ARGV)
 writers = build_writers
 
 $stderr.puts "Starting extraction: #{xml_path}"
 $stderr.puts "Period: #{from_date || 'all'} - #{to_date || 'all'}, grain: #{grain}"
 
+handler = SaxHandler.new(writers, from_date, to_date, grain)
+
+File.open(xml_path, 'rb') do |f|
+  Ox.sax_parse(handler, f)
+end
+
+handler.flush unless grain == 'full'
 close_writers(writers)
-$stderr.puts 'Done (SAX handler not yet implemented)'
+$stderr.puts 'Extraction complete.'
