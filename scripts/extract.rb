@@ -15,8 +15,10 @@ TARGETS = {
   'HKQuantityTypeIdentifierRestingHeartRate'   => 'RestingHeartRate',
   'HKQuantityTypeIdentifierActiveEnergyBurned' => 'ActiveEnergyBurned',
   'HKQuantityTypeIdentifierVO2Max'             => 'VO2Max',
-  'HKQuantityTypeIdentifierBodyFatPercentage'  => 'BodyFatPercentage',
-  'HKCategoryTypeIdentifierSleepAnalysis'      => 'SleepAnalysis',
+  'HKQuantityTypeIdentifierBodyFatPercentage'        => 'BodyFatPercentage',
+  'HKCategoryTypeIdentifierSleepAnalysis'            => 'SleepAnalysis',
+  'HKQuantityTypeIdentifierHeartRateVariabilitySDNN' => 'HRV',
+  'HKQuantityTypeIdentifierRespiratoryRate'          => 'RespiratoryRate',
 }.freeze
 
 AGGREGATION = {
@@ -28,6 +30,8 @@ AGGREGATION = {
   'VO2Max'             => :mean,
   'BodyFatPercentage'  => :mean,
   'SleepAnalysis'      => :sleep,
+  'HRV'                => :mean,
+  'RespiratoryRate'    => :mean,
 }.freeze
 
 CSV_HEADERS = %w[creationDate startDate endDate value unit sourceName].freeze
@@ -64,27 +68,37 @@ end
 
 class SaxHandler < Ox::Sax
   def initialize(writers, from_date, to_date, grain)
-    @writers = writers
-    @from    = from_date
-    @to      = to_date
-    @grain   = grain
-    @attrs   = nil
-    @count   = 0
-    @buffers = {}
+    @writers        = writers
+    @from           = from_date
+    @to             = to_date
+    @grain          = grain
+    @attrs          = nil
+    @collecting     = false
+    @count          = 0
+    @buffers        = {}
   end
 
   def start_element(name)
-    @attrs = {} if name == :Record
+    if name == :Record
+      @attrs      = {}
+      @collecting = true
+    else
+      @collecting = false
+    end
   end
 
   def attr(name, value)
-    @attrs[name] = value if @attrs
+    @attrs[name] = value if @collecting
   end
 
   def end_element(name)
-    return unless name == :Record && @attrs
-    process_record(@attrs)
-    @attrs = nil
+    if name == :Record && @attrs
+      process_record(@attrs)
+      @attrs      = nil
+      @collecting = false
+    else
+      @collecting = false
+    end
   end
 
   def flush
