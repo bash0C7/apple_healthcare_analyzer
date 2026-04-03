@@ -8,7 +8,7 @@ require 'fileutils'
 require 'sqlite3'
 require 'time'
 
-DB_PATH = 'db/health.db'.freeze
+DB_PATH = ENV.fetch('HEALTH_DB_PATH', 'db/health.db').freeze
 
 # --- 日次集計用定数 ---
 SUM_METRICS  = %w[StepCount ActiveEnergyBurned].freeze

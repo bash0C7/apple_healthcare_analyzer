@@ -39,7 +39,7 @@ health-analysis/
 
 ```bash
 # === 初回セットアップ ===
-# /init-health-db コマンドを使うか、以下を手動で実行
+# /apple-health-care-init-db コマンドを使うか、以下を手動で実行
 
 # 1. XMLから全件インポート（初回のみ・時間がかかる）
 bundle exec ruby scripts/import_xml.rb data/export.xml

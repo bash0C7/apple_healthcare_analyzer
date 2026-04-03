@@ -21,7 +21,7 @@ TARGETS = {
   'HKQuantityTypeIdentifierRespiratoryRate'          => 'RespiratoryRate',
 }.freeze
 
-DB_PATH    = 'db/health.db'.freeze
+DB_PATH    = ENV.fetch('HEALTH_DB_PATH', 'db/health.db').freeze
 BATCH_SIZE = 500
 
 SCHEMA_SQL = [

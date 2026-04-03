@@ -24,6 +24,7 @@ class QueryHealthTool < MCP::Tool
   description <<~DESC.strip
     db/health.db に対してSELECTクエリを実行。
     テーブル:
+      raw_records(id, metric, start_date, end_date, creation_date, value TEXT, unit, source) — XML生データ全件
       records(date TEXT, metric TEXT, value REAL, unit TEXT) — 日次集計データ、UNIQUE(metric, date)
       daily_summary(date PK, step_count, active_energy, body_mass, body_fat, heart_rate, resting_hr, hrv, respiratory_rate, vo2max, sleep_hours, asleep_hours, body_battery INTEGER, updated_at)
       meta(key PK, value) — ベースライン・ロード日時など

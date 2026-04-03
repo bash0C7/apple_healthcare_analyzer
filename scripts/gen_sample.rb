@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 # Usage: bundle exec ruby scripts/gen_sample.rb export.xml
+# 個人情報匿名化: sourceName・device属性を汎用名に、valueに±5%ノイズを付与
 
 SAMPLE_TYPES = %w[
   HKQuantityTypeIdentifierStepCount
@@ -23,7 +24,7 @@ def collect_records(xml_path)
 
     SAMPLE_TYPES.each do |type|
       if line.include?(%(type="#{type}")) && counts[type] < RECORDS_PER_TYPE
-        rec = line.chomp.strip
+        rec = anonymize(line.chomp.strip)
         rec = rec.end_with?('/>') ? rec : rec.sub(/>$/, '/>')
         records << rec
         counts[type] += 1
@@ -36,6 +37,19 @@ def collect_records(xml_path)
 
   warn_missing(counts)
   records
+end
+
+def anonymize(line)
+  # sourceName・device を汎用名に置換
+  result = line
+             .gsub(/sourceName="[^"]*"/, 'sourceName="TestDevice"')
+             .gsub(/device="[^"]*"/, 'device="TestWatch"')
+  # value に ±5% のランダムノイズを付与
+  result.gsub(/\bvalue="([\d.]+)"/) do
+    v = Regexp.last_match(1).to_f
+    noise = v * (rand * 0.1 - 0.05)
+    %(value="#{format('%.4g', v + noise)}")
+  end
 end
 
 def warn_missing(counts)
