@@ -14,12 +14,5 @@
       "Bash(wc -l output/*.csv)",
       "Bash(sqlite3 db/health.db*)"
     ]
-  },
-  "mcpServers": {
-    "health-db": {
-      "command": "bundle",
-      "args": ["exec", "ruby", "scripts/mcp_server.rb"],
-      "cwd": "/Users/bash/Downloads/apple_health_export"
-    }
   }
 }
