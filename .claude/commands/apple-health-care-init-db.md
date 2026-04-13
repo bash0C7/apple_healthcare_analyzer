@@ -8,35 +8,67 @@
 
 作業ディレクトリ: /Users/bash/dev/src/github.com/bash0C7/apple_healthcare_analyzer
 
-Apple Health SQLite DB を初期化する。XMLファイルパスが引数で渡された場合はそれを使用し、省略時は `data/export.xml` を使う。
+**ステップ0: プロジェクトルートの特定**
 
-**ステップ1: 前提確認**
+このコマンドが置かれているプロジェクトのルートディレクトリを特定する:
 
-以下を確認する:
+```bash
+# CLAUDE.mdがある場所 = プロジェクトルート
+ls CLAUDE.md
+```
+
+以降の操作はすべてプロジェクトルートを基準に行う。
+
+**ステップ1: XMLファイルの特定**
+
+引数でファイルパスが渡された場合はそれを export.xml として使用する。
+
+引数が省略された場合は **ユーザーに確認する**:
+
+```
+Apple Health のエクスポートデータフォルダを教えてください。
+
+iPhoneの「ヘルスケア」アプリからエクスポートすると ZIP ファイルが生成されます。
+それを展開したフォルダのパスを教えてください。
+（例: /Users/yourname/Downloads/apple_health_export）
+
+フォルダの中に export.xml というファイルがあるはずです。
+```
+
+ユーザーからフォルダパスを受け取ったら、以下で export.xml を探す:
+
+```bash
+ls "<ユーザー指定フォルダ>/export.xml"
+```
+
+ファイルが見つかった場合: そのパスを使用する。
+見つからない場合: `find "<ユーザー指定フォルダ>" -name "export.xml"` で探し直す。
+それでも見つからない場合: ユーザーに「export.xml が見当たりません。フォルダを確認してください」と伝えて終了する。
+
+**ステップ2: 前提確認**
+
 ```bash
 ruby -v
-ls data/export.xml
 ls db/health.db
 ```
 
-- XMLファイルが存在しない場合は処理を中断し、ユーザーにパスを確認するよう伝える。
-- `db/health.db` が既に存在する場合は「DBが既に存在します。再構築が必要な場合は `rm db/health.db` してから `/init-health-db` を再実行してください。」と報告して終了する。
+- `db/health.db` が既に存在する場合は「DBが既に存在します。再構築が必要な場合は `/apple-health-care-update-db` を実行してください。」と報告して終了する。
 
-**ステップ2: XML → raw_records インポート**
+**ステップ3: XML → raw_records インポート**
 
 ```bash
-bundle exec ruby scripts/import_xml.rb data/export.xml
+bundle exec ruby scripts/import_xml.rb <export.xmlのパス>
 ```
 
-引数でパスが指定された場合はそのパスを使う。3GBのXMLは時間がかかるため、進捗を随時ユーザーに伝えること。
+3GBのXMLは時間がかかるため、進捗を随時ユーザーに伝えること。
 
-**ステップ3: daily_summary 構築**
+**ステップ4: daily_summary 構築**
 
 ```bash
 bundle exec ruby scripts/build_summary.rb
 ```
 
-**ステップ4: 結果確認**
+**ステップ5: 結果確認**
 
 ```bash
 sqlite3 db/health.db "SELECT COUNT(*) FROM raw_records;"
@@ -45,7 +77,7 @@ sqlite3 db/health.db "SELECT MIN(date), MAX(date) FROM daily_summary;"
 sqlite3 db/health.db "SELECT key, value FROM meta ORDER BY key;"
 ```
 
-**ステップ5: 完了報告**
+**ステップ6: 完了報告**
 
 以下の形式で日本語で報告する:
 
@@ -57,9 +89,9 @@ sqlite3 db/health.db "SELECT key, value FROM meta ORDER BY key;"
 - ベースライン安静時心拍 p10: XX.X bpm
 - ベースライン HRV 平均: XX.X ms
 
-次のステップ:
-- 分析: /apple-health-analyze
-- アドホッククエリ: Claude Code を再起動して MCP サーバー (health-db) 経由でクエリ可能
+分析するには Claude Code で直接質問してください（chiebukuro_query_health ツールで自動クエリします）:
+- 「直近90日の健康状態をまとめて」
+- 「HRVと安静時心拍のトレンドは？」
 ```
 
 エラーが発生した場合はエラーメッセージをそのまま報告し、どのステップで失敗したかを明示すること。
