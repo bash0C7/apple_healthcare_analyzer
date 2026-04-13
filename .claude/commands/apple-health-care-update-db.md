@@ -6,7 +6,7 @@
 
 **サブエージェントへの指示:**
 
-作業ディレクトリ: /Users/bash/Downloads/apple_health_export
+作業ディレクトリ: /Users/bash/dev/src/github.com/bash0C7/apple_healthcare_analyzer
 
 Apple Health の新しい export.xml で db/health.db を再構築する。
 

@@ -6,7 +6,7 @@
 
 **サブエージェントへの指示:**
 
-作業ディレクトリ: /Users/bash/Downloads/apple_health_export
+作業ディレクトリ: /Users/bash/dev/src/github.com/bash0C7/apple_healthcare_analyzer
 
 Apple Health SQLite DB を初期化する。XMLファイルパスが引数で渡された場合はそれを使用し、省略時は `data/export.xml` を使う。
 

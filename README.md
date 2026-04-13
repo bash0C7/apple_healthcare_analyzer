@@ -94,6 +94,11 @@ Claude Code を使っている場合は `/apple-health-care-update-db` コマン
 /apple-health-care-update-db /path/to/新しい/export.xml         # パスを直接渡す場合
 ```
 
+> **chiebukuro-mcp 連携スキル**
+> chiebukuro-mcp の DB 置き場（iCloud）へのコピーと `_sqlite_mcp_meta` 投入を含む完全な更新手順は、
+> chiebukuro-mcp 側のスキルで管理しています：
+> `/Users/bash/Library/Mobile Documents/com~apple~CloudDocs/dotfiles/chiebukuro-mcp/chiebukuro-mcp/.claude/skills/chiebukuro-health-db-update/SKILL.md`
+
 > **なぜ差分ではなく全件再構築か？**
 > Apple Health のエクスポートは常に「全期間の全レコード」を含む完全なスナップショットです。
 > 差分インポートではなく上書き再構築が最も確実です。
